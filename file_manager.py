@@ -14,29 +14,52 @@ from datetime import datetime
 
 class FileManager:
     """Manages file operations with version control"""
-    
+
     def __init__(self, file_path: Path):
         self.file_path = file_path.resolve()
+        self.version_file = self.file_path.parent / f"{self.file_path.name}.version"
         self.version = 0
         self.last_modified = None
         self.content_hash = None
-        
+        self._version_lock_file = self.file_path.parent / f"{self.file_path.name}.lock"
+
         # Ensure file exists
         self.ensure_file_exists()
         self.load_metadata()
-    
+        self.load_version()
+
     def ensure_file_exists(self):
         """Ensure the file and its directory exist"""
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.file_path.exists():
             self.file_path.write_text("", encoding="utf-8")
-    
+
+    def load_version(self):
+        """Load version from disk (for multi-process sync)"""
+        try:
+            if self.version_file.exists():
+                version_str = self.version_file.read_text(encoding="utf-8").strip()
+                if version_str:
+                    self.version = int(version_str)
+            else:
+                self.version = 0
+        except Exception as e:
+            print(f"Error loading version: {e}")
+            self.version = 0
+
+    def save_version(self):
+        """Save version to disk (for multi-process sync)"""
+        try:
+            self.version_file.write_text(str(self.version), encoding="utf-8")
+        except Exception as e:
+            print(f"Error saving version: {e}")
+
     def load_metadata(self):
         """Load file metadata"""
         try:
             stat = self.file_path.stat()
             self.last_modified = datetime.fromtimestamp(stat.st_mtime)
-            
+
             # Calculate content hash
             content = self.file_path.read_text(encoding="utf-8")
             self.content_hash = hashlib.md5(content.encode()).hexdigest()
@@ -44,13 +67,19 @@ class FileManager:
             print(f"Error loading metadata: {e}")
             self.last_modified = datetime.now()
             self.content_hash = ""
-    
+
     def increment_version(self):
-        """Increment version number"""
+        """Increment version number and persist to disk"""
         self.version += 1
+        self.save_version()
     
     def validate_version(self, expected_version: int) -> bool:
-        """Validate if the current version matches the expected version"""
+        """Validate if the current version matches the expected version
+
+        In multi-process environment, always reload version from disk first
+        to ensure we have the latest version.
+        """
+        self.load_version()  # Reload from disk to get latest version from other processes
         return self.version == expected_version
     
     def get_content(self) -> str:
