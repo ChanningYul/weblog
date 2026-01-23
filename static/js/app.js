@@ -274,7 +274,8 @@ class NotepadApp {
                     },
                     body: JSON.stringify({
                         operation: 'full',
-                        content: this.currentContent
+                        content: this.currentContent,
+                        version: this.currentVersion
                     })
                 });
             }

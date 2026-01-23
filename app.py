@@ -312,22 +312,32 @@ def update_content():
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'message': '无效的数据'}), 400
-        
+
         content = data.get('content', '')
         changes = data.get('changes', [])
         expected_version = data.get('version')
-        
+
         # Get user-specific file path
         username = request.user['username']
         user_file = get_user_file_path(username)
-        
+
         file_manager = file_manager_pool.get_manager(user_file)
-        
+
+        # Validate version if provided (for both incremental and full updates)
+        if expected_version is not None and not file_manager.validate_version(expected_version):
+            return jsonify({
+                'success': False,
+                'message': '版本冲突，文件已被其他操作修改',
+                'error_type': 'version_mismatch',
+                'current_version': file_manager.get_version(),
+                'current_content': file_manager.get_content()
+            }), 409
+
         # Apply changes if provided, otherwise update full content
         if changes:
             success, message = file_manager.apply_changes(changes, expected_version)
-            
-            # Handle version mismatch
+
+            # Handle version mismatch (should already be caught above, but keep for safety)
             if message == "version_mismatch":
                 return jsonify({
                     'success': False,
